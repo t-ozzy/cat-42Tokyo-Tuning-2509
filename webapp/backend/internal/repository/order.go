@@ -1,3 +1,6 @@
+// 複数注文をバルクインサートし、生成された注文IDを返す
+
+// 複数注文をバルクインサートし、生成された注文IDを返す
 package repository
 
 import (
@@ -13,6 +16,35 @@ import (
 
 type OrderRepository struct {
 	db DBTX
+}
+
+// 複数注文をバルクインサートし、生成された注文IDを返す
+func (r *OrderRepository) CreateBulk(ctx context.Context, orders []model.Order) ([]string, error) {
+	if len(orders) == 0 {
+		return nil, nil
+	}
+	query := "INSERT INTO orders (user_id, product_id, shipped_status, created_at) VALUES "
+	args := []interface{}{}
+	placeholders := []string{}
+	for _, order := range orders {
+		placeholders = append(placeholders, "(?, ?, 'shipping', NOW())")
+		args = append(args, order.UserID, order.ProductID)
+	}
+	query += strings.Join(placeholders, ",")
+	result, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	// 生成された注文IDを返す（MySQLの場合、最初のIDのみ取得可能）
+	firstID, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	ids := []string{}
+	for i := 0; i < len(orders); i++ {
+		ids = append(ids, fmt.Sprintf("%d", firstID+int64(i)))
+	}
+	return ids, nil
 }
 
 func NewOrderRepository(db DBTX) *OrderRepository {
