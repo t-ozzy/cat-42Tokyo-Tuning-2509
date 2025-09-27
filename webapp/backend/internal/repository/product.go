@@ -13,38 +13,50 @@ func NewProductRepository(db DBTX) *ProductRepository {
 	return &ProductRepository{db: db}
 }
 
-// 商品一覧を全件取得し、アプリケーション側でページング処理を行う
+// 商品一覧をDBレベルでページング処理を行う（効率化）
 func (r *ProductRepository) ListProducts(ctx context.Context, userID int, req model.ListRequest) ([]model.Product, int, error) {
 	var products []model.Product
-	baseQuery := `
+	var total int
+	
+	// 総件数取得用のクエリ
+	countQuery := "SELECT COUNT(*) FROM products"
+	countArgs := []interface{}{}
+	
+	// データ取得用のクエリ
+	dataQuery := `
 		SELECT product_id, name, value, weight, image, description
 		FROM products
 	`
-	args := []interface{}{}
+	dataArgs := []interface{}{}
 
+	// 検索条件がある場合
 	if req.Search != "" {
-		baseQuery += " WHERE (name LIKE ? OR description LIKE ?)"
+		whereClause := " WHERE (name LIKE ? OR description LIKE ?)"
 		searchPattern := "%" + req.Search + "%"
-		args = append(args, searchPattern, searchPattern)
+		
+		countQuery += whereClause
+		countArgs = append(countArgs, searchPattern, searchPattern)
+		
+		dataQuery += whereClause
+		dataArgs = append(dataArgs, searchPattern, searchPattern)
 	}
 
-	baseQuery += " ORDER BY " + req.SortField + " " + req.SortOrder + " , product_id ASC"
-
-	err := r.db.SelectContext(ctx, &products, baseQuery, args...)
+	// 総件数を取得
+	err := r.db.GetContext(ctx, &total, countQuery, countArgs...)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	total := len(products)
-	start := req.Offset
-	end := req.Offset + req.PageSize
-	if start > total {
-		start = total
-	}
-	if end > total {
-		end = total
-	}
-	pagedProducts := products[start:end]
+	// ソート条件とページング条件を追加
+	dataQuery += " ORDER BY " + req.SortField + " " + req.SortOrder + ", product_id ASC"
+	dataQuery += " LIMIT ? OFFSET ?"
+	dataArgs = append(dataArgs, req.PageSize, req.Offset)
 
-	return pagedProducts, total, nil
+	// データを取得
+	err = r.db.SelectContext(ctx, &products, dataQuery, dataArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return products, total, nil
 }
