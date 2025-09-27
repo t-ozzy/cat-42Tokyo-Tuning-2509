@@ -10,16 +10,23 @@ type Store struct {
 	db          DBTX
 	UserRepo    *UserRepository
 	SessionRepo *SessionRepository
-	ProductRepo *ProductRepository
+	ProductRepo IProductRepository
 	OrderRepo   *OrderRepository
 }
 
 func NewStore(db DBTX) *Store {
+
+	dbProductRepo := NewDbProductRepository(db)
+
+	// 2. キャッシュ機能を持つリポジトリでラップします (この行も抜けていました)
+	cachedProductRepo := NewCachingProductRepository(dbProductRepo) 
+
+
 	return &Store{
 		db:          db,
 		UserRepo:    NewUserRepository(db),
 		SessionRepo: NewSessionRepository(db),
-		ProductRepo: NewProductRepository(db),
+		ProductRepo: cachedProductRepo,
 		OrderRepo:   NewOrderRepository(db),
 	}
 }
