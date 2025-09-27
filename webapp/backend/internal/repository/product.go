@@ -5,16 +5,16 @@ import (
 	"context"
 )
 
-type ProductRepository struct {
+type DbProductRepository struct {
 	db DBTX
 }
 
-func NewProductRepository(db DBTX) *ProductRepository {
-	return &ProductRepository{db: db}
+func NewDbProductRepository(db DBTX) IProductRepository {
+	return &DbProductRepository{db: db}
 }
 
 // 商品一覧を全件取得し、アプリケーション側でページング処理を行う
-func (r *ProductRepository) ListProducts(ctx context.Context, userID int, req model.ListRequest) ([]model.Product, int, error) {
+func (r *DbProductRepository) ListProducts(ctx context.Context, userID int, req model.ListRequest) ([]model.Product, int, error) {
 	var products []model.Product
 	var total int
 
