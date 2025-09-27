@@ -6,6 +6,10 @@ import (
 
 	"backend/internal/model"
 	"backend/internal/repository"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 type ProductService struct {
@@ -54,6 +58,32 @@ func (s *ProductService) CreateOrders(ctx context.Context, userID int, items []m
 }
 
 func (s *ProductService) FetchProducts(ctx context.Context, userID int, req model.ListRequest) ([]model.Product, int, error) {
+	// トレースのスパンを作成
+	ctx, span := otel.Tracer("product-service").Start(ctx, "FetchProducts")
+	defer span.End()
+
+	// リクエスト情報をスパンに記録
+	span.SetAttributes(
+		attribute.Int("user.id", userID),
+		attribute.Int("request.page", req.Page),
+		attribute.Int("request.page_size", req.PageSize),
+		attribute.String("request.search", req.Search),
+	)
+
 	products, total, err := s.store.ProductRepo.ListProducts(ctx, userID, req)
+
+	if err != nil {
+		// エラー情報をスパンに記録
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to fetch products")
+		return nil, 0, err
+	}
+
+	// レスポンス情報をスパンに記録
+	span.SetAttributes(
+		attribute.Int("response.products_count", len(products)),
+		attribute.Int("response.total", total),
+	)
+
 	return products, total, err
 }
