@@ -6,7 +6,6 @@ import (
 	"backend/internal/service/utils"
 	"context"
 	"log"
-	"sort"
 	
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -81,37 +80,34 @@ func (s *RobotService) UpdateOrderStatus(ctx context.Context, orderID int64, new
 }
 
 func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID string, robotCapacity int) (model.DeliveryPlan, error) {
-	// 貪欲法: 価値密度（value/weight）でソートして、容量内で最も効率の良い順に選択
+	// 動的プログラミングによるナップサック解法（最適解を保証）
 	
-	// 価値密度を計算して構造体に格納
-	type orderWithDensity struct {
-		order   model.Order
-		density float64
-	}
-	
-	var ordersWithDensity []orderWithDensity
+	// 重量0以下の注文を除外
+	var validOrders []model.Order
 	for _, order := range orders {
-		if order.Weight <= 0 {
-			continue // 重量0以下は除外
+		if order.Weight > 0 && order.Weight <= robotCapacity {
+			validOrders = append(validOrders, order)
 		}
-		density := float64(order.Value) / float64(order.Weight)
-		ordersWithDensity = append(ordersWithDensity, orderWithDensity{
-			order:   order,
-			density: density,
-		})
 	}
 	
-	// 価値密度の高い順にソート（降順）
-	sort.Slice(ordersWithDensity, func(i, j int) bool {
-		return ordersWithDensity[i].density > ordersWithDensity[j].density
-	})
+	n := len(validOrders)
+	if n == 0 {
+		return model.DeliveryPlan{
+			RobotID:     robotID,
+			TotalWeight: 0,
+			TotalValue:  0,
+			Orders:      []model.Order{},
+		}, nil
+	}
 	
-	// 貪欲に選択
-	var selectedOrders []model.Order
-	totalWeight := 0
-	totalValue := 0
+	// DP配列: dp[i][w] = i番目までの注文を使って重量wまでの最大価値
+	dp := make([][]int, n+1)
+	for i := range dp {
+		dp[i] = make([]int, robotCapacity+1)
+	}
 	
-	for _, item := range ordersWithDensity {
+	// DPテーブルを構築
+	for i := 1; i <= n; i++ {
 		// コンテキストのキャンセルをチェック
 		select {
 		case <-ctx.Done():
@@ -119,10 +115,31 @@ func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID 
 		default:
 		}
 		
-		if totalWeight+item.order.Weight <= robotCapacity {
-			selectedOrders = append(selectedOrders, item.order)
-			totalWeight += item.order.Weight
-			totalValue += item.order.Value
+		order := validOrders[i-1]
+		for w := 0; w <= robotCapacity; w++ {
+			// この注文を選ばない場合
+			dp[i][w] = dp[i-1][w]
+			
+			// この注文を選ぶ場合（重量が許す場合）
+			if w >= order.Weight {
+				dp[i][w] = max(dp[i][w], dp[i-1][w-order.Weight]+order.Value)
+			}
+		}
+	}
+	
+	// 最適解の復元
+	var selectedOrders []model.Order
+	totalWeight := 0
+	totalValue := dp[n][robotCapacity]
+	
+	w := robotCapacity
+	for i := n; i > 0 && w > 0; i-- {
+		// この注文が選ばれているかチェック
+		if dp[i][w] != dp[i-1][w] {
+			order := validOrders[i-1]
+			selectedOrders = append(selectedOrders, order)
+			totalWeight += order.Weight
+			w -= order.Weight
 		}
 	}
 
@@ -132,4 +149,11 @@ func selectOrdersForDelivery(ctx context.Context, orders []model.Order, robotID 
 		TotalValue:  totalValue,
 		Orders:      selectedOrders,
 	}, nil
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
