@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type ProductHandler struct {
@@ -99,17 +100,14 @@ func (h *ProductHandler) CreateOrders(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProductHandler) GetImage(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("画像リクエスト受信: %s\n", r.URL.String())
 	imagePath := r.URL.Query().Get("path")
 	if imagePath == "" {
-		fmt.Println("画像パスが空です")
 		http.Error(w, "画像パスが指定されていません", http.StatusBadRequest)
 		return
 	}
 
 	imagePath = filepath.Clean(imagePath)
 	if filepath.IsAbs(imagePath) || strings.Contains(imagePath, "..") {
-		fmt.Printf("無効なパス: %s\n", imagePath)
 		http.Error(w, "無効なパスです", http.StatusBadRequest)
 		return
 	}
@@ -117,9 +115,13 @@ func (h *ProductHandler) GetImage(w http.ResponseWriter, r *http.Request) {
 	baseImageDir := "/app/images"
 	fullPath := filepath.Join(baseImageDir, imagePath)
 
-	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		fmt.Printf("画像ファイルが見つかりません: %s\n", fullPath)
+	fileInfo, err := os.Stat(fullPath)
+	if os.IsNotExist(err) {
 		http.Error(w, "画像が見つかりません", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "ファイル情報の取得に失敗しました", http.StatusInternalServerError)
 		return
 	}
 
@@ -137,14 +139,38 @@ func (h *ProductHandler) GetImage(w http.ResponseWriter, r *http.Request) {
 	default:
 		contentType = "application/octet-stream"
 	}
-	w.Header().Set("Content-Type", contentType)
 
-	data, err := os.ReadFile(fullPath)
+	// キャッシュヘッダーの設定
+	modTime := fileInfo.ModTime()
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=3600") // 1時間キャッシュ
+	w.Header().Set("Last-Modified", modTime.UTC().Format(http.TimeFormat))
+	w.Header().Set("ETag", fmt.Sprintf(`"%x-%x"`, fileInfo.Size(), modTime.Unix()))
+
+	// If-Modified-Sinceヘッダーのチェック
+	if ifModSince := r.Header.Get("If-Modified-Since"); ifModSince != "" {
+		if t, err := http.ParseTime(ifModSince); err == nil && !modTime.After(t.Add(1*time.Second)) {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+
+	// If-None-Matchヘッダーのチェック
+	if ifNoneMatch := r.Header.Get("If-None-Match"); ifNoneMatch != "" {
+		etag := fmt.Sprintf(`"%x-%x"`, fileInfo.Size(), modTime.Unix())
+		if ifNoneMatch == etag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+
+	// ストリーミング配信（メモリ効率的）
+	file, err := os.Open(fullPath)
 	if err != nil {
-		fmt.Printf("画像ファイルの読み込みに失敗: %s\n", fullPath)
 		http.Error(w, "画像の読み込みに失敗しました", http.StatusInternalServerError)
 		return
 	}
+	defer file.Close()
 
-	w.Write(data)
+	http.ServeContent(w, r, filepath.Base(fullPath), modTime, file)
 }
