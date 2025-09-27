@@ -24,16 +24,10 @@ func NewServer() (*Server, *sqlx.DB, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	// Redisクライアントを初期化
-	redisClient, err := db.InitRedisClient()
-	if err != nil {
-		log.Printf("Warning: Redis connection failed, continuing without caching: %v", err)
-		// Redisなしでも続行可能
-	}
 
 	store := repository.NewStore(dbConn)
 
-	authService := service.NewAuthService(store, redisClient)
+	authService := service.NewAuthService(store)
 	orderService := service.NewOrderService(store)
 	productService := service.NewProductService(store)
 	robotService := service.NewRobotService(store)
