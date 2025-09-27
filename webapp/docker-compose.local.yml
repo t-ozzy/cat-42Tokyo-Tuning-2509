@@ -25,7 +25,11 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1:${PORT:-8080}/api/health || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS -o /dev/null http://127.0.0.1:${PORT:-8080}/api/health || exit 1",
+        ]
       interval: 5s
       timeout: 10s
       retries: 10
@@ -125,10 +129,22 @@ services:
     command:
       - "--query.base-path=/jaeger"
     # ports:
-      # - "16686:16686" # Jaeger UI
-      # - "14268:14268" # Jaeger collector
-      # - "14250:14250" # Jaeger gRPC collector
-      # - "4318:4318" # OpenTelemetry gRPC receiver
+    # - "16686:16686" # Jaeger UI
+    # - "14268:14268" # Jaeger collector
+    # - "14250:14250" # Jaeger gRPC collector
+    # - "4318:4318" # OpenTelemetry gRPC receiver
+    networks:
+      - webapp-network
+
+  redis:
+    image: redis:alpine
+    container_name: tuning-redis
+    # ports:
+    #   - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes # データ永続化
+    restart: unless-stopped
     networks:
       - webapp-network
 
@@ -139,3 +155,7 @@ networks:
   webapp-network:
     name: webapp-network
     external: true
+
+volumes:
+  # 保存先のvolume名は、webapp_redis_data
+  redis_data:
