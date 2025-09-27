@@ -37,9 +37,11 @@ func InitDBConnection() (*sqlx.DB, error) {
 	}
 	log.Println("Successfully connected to MySQL!")
 
-	dbConn.SetMaxOpenConns(25)
-	dbConn.SetMaxIdleConns(10)
-	dbConn.SetConnMaxLifetime(0)
+	// 接続プール最適化設定
+	dbConn.SetMaxOpenConns(15)              // 最大接続数を削減（VM環境対応）
+	dbConn.SetMaxIdleConns(5)               // アイドル接続数を削減
+	dbConn.SetConnMaxLifetime(5 * time.Minute) // 接続の最大寿命
+	dbConn.SetConnMaxIdleTime(30 * time.Second) // アイドル時間後に接続を閉じる
 
 	return dbConn, nil
 }
