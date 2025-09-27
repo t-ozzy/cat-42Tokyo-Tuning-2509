@@ -10,7 +10,7 @@ import (
 
 var redisClient *redis.Client
 
-// InitRedisClient はRedisクライアントを初期化します
+// redisClientの初期化
 func InitRedisClient() (*redis.Client, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:     "redis:6379", // Dockerネットワーク内のアドレス
@@ -27,13 +27,14 @@ func InitRedisClient() (*redis.Client, error) {
 		log.Printf("Redisへの接続に失敗しました: %v", err)
 		return nil, err
 	}
-
 	log.Println("Redisに接続しました")
+
+	// グローバル変数のredisClientにセット
 	redisClient = client
 	return client, nil
 }
 
-// GetRedisClient は初期化済みのRedisクライアントを返します
+// グローバル変数のredisClientをこの関数経由で渡すことで一括管理ができる
 func GetRedisClient() *redis.Client {
 	return redisClient
 }

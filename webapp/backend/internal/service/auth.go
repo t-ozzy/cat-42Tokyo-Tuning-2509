@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"log"
-	"strconv"
 	"time"
 
 	"backend/internal/repository"
@@ -39,43 +38,7 @@ func (s *AuthService) Login(ctx context.Context, userName, password string) (str
 	ctx, span := otel.Tracer("service.auth").Start(ctx, "AuthService.Login")
 	defer span.End()
 
-	// キャッシュキーを設定（ユーザー名とパスワードのハッシュ）
-	// userNameだけにしてしまうと、間違ったパスワードでログイン失敗した場合でも正しいパスワードでログインしたときと同じキャッシュキーになってしまう
-	// つまり、間違ったパスワードでログイン失敗した場合でもキャッシュヒットしてしまう
-	// そのため、userNameとpasswordのハッシュを組み合わせたキーにする
-	// 例: auth:login:alice:5f4dcc3b5aa765d61d8327deb882cf99
-	cacheKey := "auth:login:" + userName + ":" + utils.HashString(password)
-
-	// Redisからキャッシュをチェック
-	if s.redisClient != nil {
-		cachedUserID, err := s.redisClient.Get(ctx, cacheKey).Result()
-		if err == nil {
-			// キャッシュヒット！
-			span.AddEvent("auth_cache_hit")
-			log.Printf("Auth cache hit for user: %s", userName)
-
-			// キャッシュからユーザーIDを取得
-			userID, _ := strconv.Atoi(cachedUserID)
-
-			// セッション作成のみ実行（DB検証をスキップ）
-			sessionDuration := 60 * time.Second
-			sessionID, expiresAt, err := s.store.SessionRepo.Create(ctx, userID, sessionDuration)
-			if err != nil {
-				log.Printf("[Login] セッション生成失敗: %v", err)
-				return "", time.Time{}, ErrInternalServer
-			}
-
-			return sessionID, expiresAt, nil
-		} else if err != redis.Nil {
-			// エラーログ（redis.Nilは「キーが存在しない」エラーなのでログ不要）
-			log.Printf("Redis error: %v", err)
-		}
-
-		// キャッシュミス
-		span.AddEvent("auth_cache_miss")
-	}
-
-	// 通常の認証フロー（既存のコード）
+	// 通常の認証フロー
 	var sessionID string
 	var expiresAt time.Time
 	err := utils.WithTimeout(ctx, func(ctx context.Context) error {
@@ -95,18 +58,32 @@ func (s *AuthService) Login(ctx context.Context, userName, password string) (str
 			return ErrInvalidPassword
 		}
 
-		// 認証成功したらRedisにキャッシュする
-		if s.redisClient != nil {
-			// 5分間キャッシュ
-			s.redisClient.Set(ctx, cacheKey, user.UserID, 5*time.Minute)
-		}
-
 		sessionDuration := 24 * time.Hour
 		sessionID, expiresAt, err = s.store.SessionRepo.Create(ctx, user.UserID, sessionDuration)
 		if err != nil {
 			log.Printf("[Login] セッション生成失敗: %v", err)
 			return ErrInternalServer
 		}
+
+		// 認証成功後、Redisにセッション情報をキャッシュする
+		if s.redisClient != nil {
+			// TODO: 共通化できそう
+			cacheKey := "session:" + sessionID
+			sessionData := map[string]interface{}{
+				"user_id":    user.UserID,
+				"expires_at": expiresAt.Unix(),
+			}
+
+			// セッションと同じ期間キャッシュを保持
+			if err := s.redisClient.HSet(ctx, cacheKey, sessionData).Err(); err != nil {
+				log.Printf("[Login] セッションキャッシュ保存失敗: %v", err)
+				// キャッシュ失敗はエラーとして扱わない（アプリケーション続行可能）
+			} else {
+				s.redisClient.Expire(ctx, cacheKey, time.Until(expiresAt))
+				log.Printf("[Login] セッションキャッシュ保存成功: %s", sessionID)
+			}
+		}
+
 		return nil
 	})
 

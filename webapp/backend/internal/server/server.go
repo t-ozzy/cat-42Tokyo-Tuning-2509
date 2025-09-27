@@ -43,7 +43,7 @@ func NewServer() (*Server, *sqlx.DB, error) {
 	orderHandler := handler.NewOrderHandler(orderService)
 	robotHandler := handler.NewRobotHandler(robotService)
 
-	userAuthMW := middleware.UserAuthMiddleware(store.SessionRepo)
+	userAuthMW := middleware.UserAuthMiddleware(store.SessionRepo, redisClient)
 
 	robotAPIKey := os.Getenv("ROBOT_API_KEY")
 	if robotAPIKey == "" {
