@@ -38,7 +38,8 @@ func (s *AuthService) Login(ctx context.Context, userName, password string) (str
 	ctx, span := otel.Tracer("service.auth").Start(ctx, "AuthService.Login")
 	defer span.End()
 
-	// 通常の認証フロー
+	log.Printf("[Debug] ログイン試行: userName=%s", userName)
+
 	var sessionID string
 	var expiresAt time.Time
 	err := utils.WithTimeout(ctx, func(ctx context.Context) error {
@@ -50,6 +51,7 @@ func (s *AuthService) Login(ctx context.Context, userName, password string) (str
 			}
 			return ErrInternalServer
 		}
+		log.Printf("[Debug] ユーザー検索成功: userID=%d", user.UserID)
 
 		err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 		if err != nil {
@@ -57,6 +59,7 @@ func (s *AuthService) Login(ctx context.Context, userName, password string) (str
 			span.RecordError(err)
 			return ErrInvalidPassword
 		}
+		log.Printf("[Debug] パスワード検証成功")
 
 		sessionDuration := 24 * time.Hour
 		sessionID, expiresAt, err = s.store.SessionRepo.Create(ctx, user.UserID, sessionDuration)
@@ -64,33 +67,28 @@ func (s *AuthService) Login(ctx context.Context, userName, password string) (str
 			log.Printf("[Login] セッション生成失敗: %v", err)
 			return ErrInternalServer
 		}
+		log.Printf("[Debug] セッション生成成功: sessionID=%s", sessionID)
 
-		// 認証成功後、Redisにセッション情報をキャッシュする
 		if s.redisClient != nil {
-			// TODO: 共通化できそう
 			cacheKey := "session:" + sessionID
-			sessionData := map[string]interface{}{
-				"user_id":    user.UserID,
-				"expires_at": expiresAt.Unix(),
-			}
-
-			// セッションと同じ期間キャッシュを保持
-			if err := s.redisClient.HSet(ctx, cacheKey, sessionData).Err(); err != nil {
-				log.Printf("[Login] セッションキャッシュ保存失敗: %v", err)
-				// キャッシュ失敗はエラーとして扱わない（アプリケーション続行可能）
+			err := s.redisClient.Set(ctx, cacheKey, user.UserID, sessionDuration).Err()
+			if err != nil {
+				log.Printf("[Login] Redisキャッシュ保存失敗: %v", err)
 			} else {
-				s.redisClient.Expire(ctx, cacheKey, time.Until(expiresAt))
-				log.Printf("[Login] セッションキャッシュ保存成功: %s", sessionID)
+				log.Printf("[Debug] Redisキャッシュ保存成功")
 			}
+		} else {
+			log.Printf("[Debug] Redisクライアントが利用できません")
 		}
 
 		return nil
 	})
 
 	if err != nil {
+		log.Printf("[Debug] ログイン失敗: %v", err)
 		return "", time.Time{}, err
 	}
+	log.Printf("[Debug] ログイン成功: sessionID=%s", sessionID)
 
-	log.Printf("Login successful for UserName '%s', session created.", userName)
 	return sessionID, expiresAt, nil
 }

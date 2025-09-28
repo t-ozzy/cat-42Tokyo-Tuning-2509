@@ -13,9 +13,9 @@ var redisClient *redis.Client
 // redisClientの初期化
 func InitRedisClient() (*redis.Client, error) {
 	client := redis.NewClient(&redis.Options{
-		Addr:     "redis:6379", // Dockerネットワーク内のアドレス
-		Password: "",           // パスワードなし
-		DB:       0,            // デフォルトDB
+		Addr:     "tuning-redis:6379", // Dockerネットワーク内のアドレス
+		Password: "",                  // パスワードなし
+		DB:       0,                   // デフォルトDB
 	})
 
 	// 接続テスト

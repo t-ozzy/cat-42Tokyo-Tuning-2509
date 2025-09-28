@@ -40,7 +40,7 @@ type DeliveryPlan struct {
 }
 
 type LoginRequest struct {
-	UserName string `json:"user_name"`
+	UserName string `json:"userName"`
 	Password string `json:"password"`
 }
 
