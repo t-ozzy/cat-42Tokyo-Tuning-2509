@@ -35,7 +35,7 @@ func NewServer() (*Server, *sqlx.DB, error) {
 
 	authService := service.NewAuthService(store, redisClient)
 	orderService := service.NewOrderService(store)
-	productService := service.NewProductService(store)
+	productService := service.NewProductService(store, redisClient)
 	robotService := service.NewRobotService(store)
 
 	authHandler := handler.NewAuthHandler(authService)
