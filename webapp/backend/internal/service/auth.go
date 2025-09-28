@@ -2,9 +2,14 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"backend/internal/repository"
@@ -14,6 +19,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 var (
@@ -34,6 +40,46 @@ func NewAuthService(store *repository.Store, redisClient *redis.Client) *AuthSer
 	}
 }
 
+// verifyPassword はハッシュ化されたパスワードを検証します
+// bcryptとPBKDF2の両方のフォーマットをサポートします
+func verifyPassword(storedHash, password string) (bool, error) {
+	// PBKDF2ハッシュのフォーマット：$pbkdf2-sha256$i=10000$salt_base64$hash_base64
+	if strings.HasPrefix(storedHash, "$pbkdf2-sha256$") {
+		parts := strings.Split(storedHash, "$")
+		if len(parts) != 4 {
+			return false, errors.New("invalid hash format")
+		}
+
+		// イテレーション回数を解析
+		var iterations int
+		if _, err := fmt.Sscanf(parts[1], "i=%d", &iterations); err != nil {
+			return false, errors.New("invalid iteration format")
+		}
+
+		// ソルトとハッシュをデコード
+		salt, err := base64.StdEncoding.DecodeString(parts[2])
+		if err != nil {
+			return false, err
+		}
+
+		storedHashBytes, err := base64.StdEncoding.DecodeString(parts[3])
+		if err != nil {
+			return false, err
+		}
+
+		// PBKDF2でパスワードをハッシュ化
+		keyLen := len(storedHashBytes)
+		computedHash := pbkdf2.Key([]byte(password), salt, iterations, keyLen, sha256.New)
+
+		// タイミング攻撃を防ぐため、constant-timeな比較を使用
+		return subtle.ConstantTimeCompare(storedHashBytes, computedHash) == 1, nil
+	}
+
+	// bcryptフォーマットの場合（既存のハッシュをサポートするため）
+	err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password))
+	return err == nil, nil
+}
+
 func (s *AuthService) Login(ctx context.Context, userName, password string) (string, time.Time, error) {
 	ctx, span := otel.Tracer("service.auth").Start(ctx, "AuthService.Login")
 	defer span.End()
@@ -51,10 +97,15 @@ func (s *AuthService) Login(ctx context.Context, userName, password string) (str
 			return ErrInternalServer
 		}
 
-		err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
+		// パスワード検証
+		valid, err := verifyPassword(user.PasswordHash, password)
 		if err != nil {
-			log.Printf("[Login] パスワード検証失敗: %v", err)
+			log.Printf("[Login] パスワード検証エラー: %v", err)
 			span.RecordError(err)
+			return ErrInternalServer
+		}
+		if !valid {
+			log.Printf("[Login] パスワード検証失敗")
 			return ErrInvalidPassword
 		}
 
