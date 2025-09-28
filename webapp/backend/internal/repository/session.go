@@ -47,3 +47,16 @@ func (r *SessionRepository) FindUserBySessionID(ctx context.Context, sessionID s
 	}
 	return userID, nil
 }
+
+// GetSessionInfo はセッションIDに基づいてセッション情報を取得する
+type SessionInfo struct {
+	UserID    int
+	ExpiresAt time.Time
+}
+
+func (r *SessionRepository) GetSessionInfo(ctx context.Context, sessionID string) (*SessionInfo, error) {
+	var info SessionInfo
+	query := `SELECT user_id, expires_at FROM user_sessions WHERE session_uuid = ?`
+	err := r.db.GetContext(ctx, &info, query, sessionID)
+	return &info, err
+}

@@ -27,14 +27,7 @@ services:
         condition: service_healthy
     healthcheck:
       test:
-        [
-          "CMD",
-          "curl",
-          "-I",
-          "http://localhost:8080/api/health",
-          "-X",
-          "GET",
-        ]
+        ["CMD", "curl", "-I", "http://localhost:8080/api/health", "-X", "GET"]
       interval: 5s
       timeout: 30s
       retries: 10
@@ -142,6 +135,18 @@ services:
     networks:
       - webapp-network
 
+  redis:
+    image: redis:alpine
+    container_name: tuning-redis
+    ports:
+      - "6379:6379" # 開発環境では公開、本番では内部ネットワークのみ
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes # データ永続化
+    restart: unless-stopped
+    networks:
+      - webapp-network
+
 # ----------------------------------------------------
 # ネットワーク定義: コンテナ間の通信
 # ----------------------------------------------------
@@ -149,3 +154,7 @@ networks:
   webapp-network:
     name: webapp-network
     external: true
+
+volumes:
+  # 保存先のvolume名は、webapp_redis_data
+  redis_data:

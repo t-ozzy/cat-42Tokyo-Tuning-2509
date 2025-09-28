@@ -24,12 +24,18 @@ func NewServer() (*Server, *sqlx.DB, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	// Redisクライアントを初期化
+	redisClient, err := db.InitRedisClient()
+	if err != nil {
+		log.Printf("Warning: Redis connection failed, continuing without caching: %v", err)
+		// Redisなしでも続行可能
+	}
 
 	store := repository.NewStore(dbConn)
 
-	authService := service.NewAuthService(store)
+	authService := service.NewAuthService(store, redisClient)
 	orderService := service.NewOrderService(store)
-	productService := service.NewProductService(store)
+	productService := service.NewProductService(store, redisClient)
 	robotService := service.NewRobotService(store)
 
 	authHandler := handler.NewAuthHandler(authService)
@@ -37,7 +43,7 @@ func NewServer() (*Server, *sqlx.DB, error) {
 	orderHandler := handler.NewOrderHandler(orderService)
 	robotHandler := handler.NewRobotHandler(robotService)
 
-	userAuthMW := middleware.UserAuthMiddleware(store.SessionRepo)
+	userAuthMW := middleware.UserAuthMiddleware(store.SessionRepo, redisClient)
 
 	robotAPIKey := os.Getenv("ROBOT_API_KEY")
 	if robotAPIKey == "" {
