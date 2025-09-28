@@ -1,5 +1,19 @@
 -- パフォーマンス改善のためのインデックス追加
 
+-- 既存インデックスを削除（重複回避）
+DROP INDEX IF EXISTS idx_products_name ON products;
+DROP INDEX IF EXISTS idx_products_description ON products;
+DROP INDEX IF EXISTS idx_products_value ON products;
+DROP INDEX IF EXISTS idx_products_weight ON products;
+DROP INDEX IF EXISTS idx_products_value_id ON products;
+DROP INDEX IF EXISTS idx_products_weight_id ON products;
+DROP INDEX IF EXISTS idx_products_name_id ON products;
+DROP INDEX IF EXISTS idx_orders_shipped_status ON orders;
+DROP INDEX IF EXISTS idx_orders_user_id ON orders;
+DROP INDEX IF EXISTS idx_orders_product_id ON orders;
+DROP INDEX IF EXISTS idx_orders_created_at ON orders;
+DROP INDEX IF EXISTS idx_orders_user_id_created_at ON orders;
+
 -- productsテーブルのインデックス
 -- 商品検索用（name, descriptionでのLIKE検索）
 CREATE INDEX idx_products_name ON products(name);
@@ -27,6 +41,3 @@ CREATE INDEX idx_orders_created_at ON orders(created_at);
 
 -- ユーザー別注文履歴用
 CREATE INDEX idx_orders_user_id_created_at ON orders(user_id, created_at DESC);
-
--- 商品別注文集計用
-CREATE INDEX idx_orders_product_id ON orders(product_id);
