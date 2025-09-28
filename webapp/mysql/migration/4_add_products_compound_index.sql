@@ -1,5 +1,2 @@
--- 既存インデックスを削除（重複回避）
-DROP INDEX IF EXISTS idx_products_name_value ON products;
-
--- 複合インデックス追加
+-- 複合インデックス追加（重複エラー無視）
 CREATE INDEX idx_products_name_value ON products(name, value);
